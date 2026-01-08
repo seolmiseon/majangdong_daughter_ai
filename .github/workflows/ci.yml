@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libnss3 \
+          libnspr4 \
+          libatk1.0-0 \
+          libatk-bridge2.0-0 \
+          libcups2 \
+          libdrm2 \
+          libdbus-1-3 \
+          libxkbcommon0 \
+          libxcomposite1 \
+          libxdamage1 \
+          libxfixes3 \
+          libxrandr2 \
+          libgbm1 \
+          libasound2
+    
+    - name: Install Playwright browsers
+      run: |
+        pip install playwright
+        playwright install chromium
+        playwright install-deps chromium
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Set up environment variables
+      env:
+        UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
+        GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+        NAVER_AD_API_KEY: ${{ secrets.NAVER_AD_API_KEY }}
+        NAVER_AD_SECRET_KEY: ${{ secrets.NAVER_AD_SECRET_KEY }}
+        NAVER_AD_CUSTOMER_ID: ${{ secrets.NAVER_AD_CUSTOMER_ID }}
+      run: |
+        # 환경 변수를 실제로 export (Python 코드가 읽을 수 있도록)
+        echo "UPSTAGE_API_KEY=$UPSTAGE_API_KEY" >> $GITHUB_ENV
+        echo "GOOGLE_AI_API_KEY=$GOOGLE_AI_API_KEY" >> $GITHUB_ENV
+        echo "NAVER_AD_API_KEY=$NAVER_AD_API_KEY" >> $GITHUB_ENV
+        echo "NAVER_AD_SECRET_KEY=$NAVER_AD_SECRET_KEY" >> $GITHUB_ENV
+        echo "NAVER_AD_CUSTOMER_ID=$NAVER_AD_CUSTOMER_ID" >> $GITHUB_ENV
+        echo "✅ Environment variables set"
+    
+    - name: Lint with flake8 (optional)
+      continue-on-error: true
+      run: |
+        pip install flake8
+        # flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Test imports
+      run: |
+        python -c "import server.api.main"
+        python -c "from server.llm_service.config.settings import settings"
+        echo "✅ All imports successful"
+

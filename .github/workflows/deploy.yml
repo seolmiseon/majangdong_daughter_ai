@@ -1,0 +1,52 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]  # main 브랜치에 push하면 자동 배포
+  workflow_dispatch:    # 수동 실행도 가능
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to AWS EC2
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.AWS_HOST }}           # AWS 서버 IP 또는 도메인
+        username: ${{ secrets.AWS_USERNAME }}    # 보통 'ubuntu' 또는 'ec2-user'
+        key: ${{ secrets.AWS_SSH_KEY }}          # SSH 개인키 (전체 내용)
+        port: ${{ secrets.AWS_SSH_PORT || 22 }}
+        script: |
+          # 프로젝트 디렉토리로 이동 (이미 클론되어 있음)
+          cd ~/majangdong_daughter_ai
+          
+          # Git에서 최신 코드 가져오기
+          git fetch origin
+          git reset --hard origin/main
+          git pull origin main
+          
+          # 가상환경 활성화 (이미 생성되어 있음)
+          source venv/bin/activate
+          
+          # 의존성 업데이트
+          pip install -r requirements.txt --upgrade
+          
+          # Playwright 브라우저 업데이트 (필요시)
+          playwright install chromium
+          playwright install-deps chromium
+          
+          # 환경 변수는 서버에 이미 설정되어 있다고 가정
+          # (서버의 .env 파일에 저장되어 있음)
+          
+          # FastAPI 서비스 재시작 (systemd 사용 시)
+          sudo systemctl restart majangdong-api || echo "API service not found, skipping restart"
+          
+          # Streamlit 서비스 재시작 (systemd 사용 시)
+          sudo systemctl restart majangdong-streamlit || echo "Streamlit service not found, skipping restart"
+          
+          echo "✅ 배포 완료!"
+

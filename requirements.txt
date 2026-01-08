@@ -1,0 +1,27 @@
+# --- UI & Dashboard ---
+streamlit>=1.40.0
+
+# --- API Framework ---
+fastapi>=0.115.0         # FastAPI 웹 프레임워크
+uvicorn>=0.32.0          # ASGI 서버 (FastAPI 실행용)
+pydantic>=2.9.0          # 데이터 검증 (FastAPI 의존성)
+
+# --- LLM & AI Agents (함께키즈 DNA 계승) ---
+openai>=1.50.0          # GPT-5 및 Solar API(OpenAI 호환)용
+pydantic-settings>=2.7.0 # 현업 스타일의 설정 관리
+python-dotenv>=1.0.0     # .env 보안 관리
+langgraph>=0.2.0         # LangGraph 워크플로우 구축용
+langchain>=0.3.0         # LangChain Tools 및 유틸리티
+langchain-core>=0.3.0    # LangChain 핵심 기능
+
+# --- Vector DB & RAG (함께키즈 핵심 로직용) ---
+chromadb>=0.5.0          # 함께키즈 vector_service용
+tiktoken>=0.7.0          # 토큰 수 계산 및 텍스트 청킹
+
+# --- Data Scraping & API (신규 기능) ---
+playwright>=1.50.0       # 네이버 플레이스 순위 스크래핑
+requests>=2.32.0         # 네이버 광고 API 통신용
+pandas>=2.2.0            # 데이터 분석 및 엑셀 출력용
+
+# --- Search Optimization (Together-Kids Hybrid Search) ---
+numpy>=1.26.0            # RRF 알고리즘 및 점수 계산용

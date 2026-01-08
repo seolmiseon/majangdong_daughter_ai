@@ -1,0 +1,56 @@
+# 1. 보안 및 비밀번호 (가장 중요)
+.env
+*.json
+!ground_truth.json        # 함께키즈에서 쓰던 테스트 데이터는 예외 허용 가능
+api_keys.py
+secrets.py
+
+# 2. 파이썬 가상환경 및 캐시
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 3. 데이터베이스 및 벡터 DB (함께키즈 ChromaDB 관련)
+data/
+chroma/
+*.db
+*.sqlite3
+
+# 4. 로그 및 임시 파일
+*.log
+logs/
+.tmp/
+.temp/
+
+# 5. OS 및 에디터 설정
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+.ruff_cache/
+ruff.toml
+
+
+# 6. 스크래핑 관련 (Playwright)
+.auth/
+screenshots/
+videos/
+update_tree.sh
+tree.txt
+.cursorrules
+
+# 7. 문서 파일 (README.md 제외)
+*.md
+!README.md
+
+# 8. 사진 저장소 (사진 파일은 Git에 커밋하지 않음)
+server/photo_storage/
