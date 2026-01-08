@@ -5,6 +5,7 @@ streamlit>=1.40.0
 fastapi>=0.115.0         # FastAPI 웹 프레임워크
 uvicorn>=0.32.0          # ASGI 서버 (FastAPI 실행용)
 pydantic>=2.9.0          # 데이터 검증 (FastAPI 의존성)
+python-multipart>=0.0.9  # FastAPI Form 데이터 처리용
 
 # --- LLM & AI Agents (함께키즈 DNA 계승) ---
 openai>=1.50.0          # GPT-5 및 Solar API(OpenAI 호환)용
