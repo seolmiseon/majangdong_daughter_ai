@@ -8,6 +8,7 @@ pydantic>=2.9.0          # 데이터 검증 (FastAPI 의존성)
 
 # --- LLM & AI Agents (함께키즈 DNA 계승) ---
 openai>=1.50.0          # GPT-5 및 Solar API(OpenAI 호환)용
+google-generativeai>=0.3.0  # Google Gemini API (이미지 분석용)
 pydantic-settings>=2.7.0 # 현업 스타일의 설정 관리
 python-dotenv>=1.0.0     # .env 보안 관리
 langgraph>=0.2.0         # LangGraph 워크플로우 구축용
