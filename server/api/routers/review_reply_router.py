@@ -19,6 +19,7 @@ from server.database.crud import (
     update_reply_posted_status
 )
 from server.api.naver_place import post_reply_to_naver
+from server.utils.policy_checker import get_policy_checker
 
 # Router 생성
 router = APIRouter(
@@ -33,6 +34,7 @@ class ReviewReplyRequest(BaseModel):
     """리뷰 답글 생성 요청 모델"""
     review_text: str = Field(..., description="리뷰 텍스트", min_length=1)
     review_rating: int = Field(..., description="리뷰 평점 (1-5점)", ge=1, le=5)
+    place_id: Optional[str] = Field(None, description="네이버 플레이스 가게 ID (답글 자동 등록 시 필수)")
     review_id: Optional[str] = Field(None, description="네이버 플레이스 리뷰 ID (선택사항)")
     auto_post: bool = Field(False, description="답글 자동 등록 여부")
 
@@ -52,6 +54,7 @@ class ReviewReplyResponse(BaseModel):
     nuance_analysis: Optional[str] = None
     review_id: Optional[str] = None
     posted: bool = False  # 네이버 플레이스에 등록되었는지 여부
+    policy_check: Optional[Dict] = None  # 정책 준수 검증 결과
     error: Optional[str] = None
 
 
@@ -64,7 +67,9 @@ class ReplyListResponse(BaseModel):
 class PostReplyRequest(BaseModel):
     """답글 등록 요청 모델"""
     reply_id: Optional[str] = Field(None, description="저장된 답글 ID")
-    review_id: str = Field(..., description="네이버 플레이스 리뷰 ID")
+    place_id: str = Field(..., description="네이버 플레이스 가게 ID (필수)")
+    review_id: Optional[str] = Field(None, description="네이버 플레이스 리뷰 ID (선택사항, 로깅용)")
+    review_text: Optional[str] = Field(None, description="리뷰 텍스트 (선택사항, 특정 리뷰를 찾기 위해 사용)")
     reply_text: Optional[str] = Field(None, description="답글 텍스트 (reply_id가 없을 경우 필수)")
 
 
@@ -90,6 +95,67 @@ async def generate_review_reply(request: ReviewReplyRequest):
             review_rating=request.review_rating
         )
         
+        # 정책 준수 검증 및 자동 재생성
+        policy_checker = get_policy_checker()
+        reply_text = result.get("reply_text", "")
+        policy_check_result = None
+        max_retries = 3  # 최대 재시도 횟수
+        
+        if reply_text:
+            for attempt in range(max_retries):
+                policy_check_result = policy_checker.check_policy_compliance(
+                    reply_text=reply_text,
+                    review_text=request.review_text
+                )
+                
+                # 정책 준수 통과 또는 점수가 70점 이상이면 OK
+                if policy_check_result["passed"] or policy_check_result["score"] >= 70:
+                    if attempt > 0:
+                        print(f"✅ 정책 준수 검증 통과 (재시도 {attempt}회 후, 점수: {policy_check_result['score']}/100)")
+                    else:
+                        print(f"✅ 정책 준수 검증 통과 (점수: {policy_check_result['score']}/100)")
+                    break
+                
+                # 정책 미준수 시 재생성
+                if attempt < max_retries - 1:
+                    print(f"⚠️ 정책 준수 검증 실패 (점수: {policy_check_result['score']}/100, 재시도 {attempt + 1}/{max_retries - 1})")
+                    for issue in policy_check_result["issues"]:
+                        print(f"  - {issue['message']}")
+                    
+                    # 재생성 프롬프트에 정책 준수 요구사항 추가
+                    from server.llm_service.services.review_reply_generator import get_review_reply_generator
+                    generator = get_review_reply_generator()
+                    
+                    # 정책 문제점을 프롬프트에 반영
+                    policy_feedback = []
+                    for issue in policy_check_result["issues"]:
+                        if issue["type"] == "forbidden_keyword":
+                            policy_feedback.append("금지 키워드(할인, 이벤트, 특가 등)를 사용하지 마세요.")
+                        elif issue["type"] == "mechanical_expression":
+                            policy_feedback.append("기계적인 표현 대신 자연스럽고 개인화된 표현을 사용하세요.")
+                        elif issue["type"] == "too_short":
+                            policy_feedback.append("답글을 더 길고 구체적으로 작성하세요.")
+                    
+                    # 재생성
+                    regenerate_result = generator.generate_reply(
+                        review_text=request.review_text,
+                        review_rating=request.review_rating,
+                        review_verdict=result.get("final_verdict"),
+                        nuance_analysis=result.get("nuance_analysis", "")
+                    )
+                    
+                    reply_text = regenerate_result.get("reply_text", "")
+                    
+                    if not reply_text:
+                        print("⚠️ 재생성 실패, 기존 답글 사용")
+                        break
+                else:
+                    # 최종 시도 실패
+                    print(f"⚠️ 정책 준수 검증 최종 실패 (점수: {policy_check_result['score']}/100)")
+                    print("  - 최대 재시도 횟수 도달, 기존 답글 사용 (수동 검토 권장)")
+                    for issue in policy_check_result["issues"]:
+                        print(f"  - {issue['message']}")
+        
         # 결과 저장 (SQLite)
         reply_data = {
             "review_text": request.review_text,
@@ -100,7 +166,7 @@ async def generate_review_reply(request: ReviewReplyRequest):
             "reason": result.get("reason", ""),
             "should_report": result.get("should_report", False),
             "should_reply": result.get("should_reply", False),
-            "reply_text": result.get("reply_text", ""),
+            "reply_text": reply_text,
             "reply_tone": result.get("reply_tone", ""),
             "nuance_analysis": result.get("nuance_analysis", ""),
             "posted": False
@@ -108,17 +174,29 @@ async def generate_review_reply(request: ReviewReplyRequest):
         
         # 자동 등록 요청 시
         posted = False
-        if request.auto_post and result.get("should_reply", False) and request.review_id:
+        if request.auto_post and result.get("should_reply", False) and request.place_id:
             try:
                 # 네이버 플레이스 API 연동
                 posted = post_reply_to_naver(
-                    request.review_id,
-                    result.get("reply_text", "")
+                    place_id=request.place_id,
+                    reply_text=result.get("reply_text", ""),
+                    review_text=request.review_text,  # 특정 리뷰를 찾기 위해 리뷰 텍스트 전달
+                    review_id=request.review_id
                 )
             except Exception as e:
                 # 자동 등록 실패해도 답글 생성은 성공으로 처리
-                print(f"⚠️ 자동 등록 실패: {str(e)}")
-                posted = False
+                error_message = str(e)
+                if "영수증 인증" in error_message:
+                    print(f"⚠️ 영수증 인증이 필요합니다: {error_message}")
+                    # 영수증 인증이 필요한 경우 특별 처리
+                    posted = False
+                else:
+                    print(f"⚠️ 자동 등록 실패: {error_message}")
+                    import traceback
+                    traceback.print_exc()
+                    posted = False
+        elif request.auto_post and not request.place_id:
+            print("⚠️ 자동 등록을 위해서는 place_id가 필요합니다.")
         
         reply_data["posted"] = posted
         reply_id = create_review_reply(reply_data)
@@ -132,11 +210,12 @@ async def generate_review_reply(request: ReviewReplyRequest):
             reason=result.get("reason", ""),
             should_report=result.get("should_report", False),
             should_reply=result.get("should_reply", False),
-            reply_text=result.get("reply_text", ""),
+            reply_text=reply_text,
             reply_tone=result.get("reply_tone", ""),
             nuance_analysis=result.get("nuance_analysis", ""),
             review_id=request.review_id,
-            posted=posted
+            posted=posted,
+            policy_check=policy_check_result
         )
         
     except Exception as e:
@@ -182,7 +261,9 @@ async def post_reply_to_naver(request: PostReplyRequest):
     답글을 네이버 플레이스에 등록
     
     - **reply_id**: 저장된 답글 ID (선택사항)
-    - **review_id**: 네이버 플레이스 리뷰 ID (필수)
+    - **place_id**: 네이버 플레이스 가게 ID (필수)
+    - **review_id**: 네이버 플레이스 리뷰 ID (선택사항, 로깅용)
+    - **review_text**: 리뷰 텍스트 (선택사항, 특정 리뷰를 찾기 위해 사용)
     - **reply_text**: 답글 텍스트 (reply_id가 없을 경우 필수)
     
     Returns:
@@ -190,6 +271,7 @@ async def post_reply_to_naver(request: PostReplyRequest):
     """
     try:
         # reply_id가 있으면 DB에서 찾기
+        review_text_from_db = None
         if request.reply_id:
             reply = get_review_reply(request.reply_id)
             if not reply:
@@ -198,6 +280,7 @@ async def post_reply_to_naver(request: PostReplyRequest):
                     detail=f"답글을 찾을 수 없습니다: {request.reply_id}"
                 )
             reply_text = reply.get("reply_text", "")
+            review_text_from_db = reply.get("review_text")  # DB에서 리뷰 텍스트 가져오기
         else:
             if not request.reply_text:
                 raise HTTPException(
@@ -206,8 +289,30 @@ async def post_reply_to_naver(request: PostReplyRequest):
                 )
             reply_text = request.reply_text
         
+        # review_text 우선순위: 요청 > DB
+        review_text = request.review_text or review_text_from_db
+        
         # 네이버 플레이스 API 연동
-        success = post_reply_to_naver(request.review_id, reply_text)
+        try:
+            success = post_reply_to_naver(
+                place_id=request.place_id,
+                reply_text=reply_text,
+                review_text=review_text,
+                review_id=request.review_id
+            )
+        except Exception as e:
+            error_message = str(e)
+            if "영수증 인증" in error_message:
+                # 영수증 인증이 필요한 경우 특별 처리
+                raise HTTPException(
+                    status_code=400,
+                    detail="영수증 인증이 필요합니다. 네이버 플레이스에서 수동으로 영수증 인증을 완료한 후 다시 시도해주세요."
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"답글 등록 중 오류 발생: {error_message}"
+                )
         
         # DB 업데이트
         if request.reply_id:
@@ -219,7 +324,8 @@ async def post_reply_to_naver(request: PostReplyRequest):
         
         return {
             "success": success,
-            "message": "답글 등록 기능은 현재 개발 중입니다." if not success else "답글이 등록되었습니다.",
+            "message": "답글이 등록되었습니다." if success else "답글 등록에 실패했습니다.",
+            "place_id": request.place_id,
             "review_id": request.review_id,
             "reply_text": reply_text[:50] + "..." if len(reply_text) > 50 else reply_text
         }

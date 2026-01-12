@@ -9,7 +9,7 @@ python-multipart>=0.0.9  # FastAPI Form 데이터 처리용
 
 # --- LLM & AI Agents (함께키즈 DNA 계승) ---
 openai>=1.50.0          # GPT-5 및 Solar API(OpenAI 호환)용
-google-generativeai>=0.3.0  # Google Gemini API (이미지 분석용)
+google-genai>=0.3.0  # Google Gemini API (이미지 분석용) - 새로운 통합 SDK
 pydantic-settings>=2.7.0 # 현업 스타일의 설정 관리
 python-dotenv>=1.0.0     # .env 보안 관리
 langgraph>=0.2.0         # LangGraph 워크플로우 구축용
@@ -24,6 +24,7 @@ tiktoken>=0.7.0          # 토큰 수 계산 및 텍스트 청킹
 playwright>=1.50.0       # 네이버 플레이스 순위 스크래핑
 requests>=2.32.0         # 네이버 광고 API 통신용
 pandas>=2.2.0            # 데이터 분석 및 엑셀 출력용
+boto3>=1.34.0            # AWS S3 이미지 업로드용
 
 # --- Search Optimization (Together-Kids Hybrid Search) ---
 numpy>=1.26.0            # RRF 알고리즘 및 점수 계산용

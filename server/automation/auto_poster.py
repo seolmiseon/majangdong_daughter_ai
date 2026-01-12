@@ -130,9 +130,9 @@ class AutoPoster:
         print(f"  남은 사진: {stats['remaining_photos']}장")
 
         if stats["total_photos"] == 0:
-            print("\n⚠️ 사진이 없습니다!")
+            print("\n⚠️ S3에 사진이 없습니다!")
             print(
-                "  server/photo_storage/ 폴더에 고기 사진을 20~30장 넣어주세요.\n"
+                "  upload_to_s3.py 스크립트로 사진을 S3에 업로드하세요.\n"
             )
             return
 

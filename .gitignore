@@ -27,6 +27,8 @@ chroma/
 # 4. 로그 및 임시 파일
 *.log
 logs/
+*.txt
+!requirements.txt
 .tmp/
 .temp/
 
@@ -54,3 +56,7 @@ tree.txt
 
 # 8. 사진 저장소 (사진 파일은 Git에 커밋하지 않음)
 server/photo_storage/
+마장동딸이미지/
+
+# 9. 테스트 파일 (임시 테스트 스크립트)
+test_*.py

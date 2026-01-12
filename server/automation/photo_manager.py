@@ -1,80 +1,98 @@
 # server/automation/photo_manager.py
 
 """
-사진 창고 관리 시스템
-- 폴더에서 랜덤으로 사진 선택
+S3 기반 사진 창고 관리 시스템
+- S3에서 랜덤으로 사진 선택
 - 사용 이력 추적하여 중복 방지
 - 모든 사진을 사용하면 다시 처음부터 순환
+- FastAPI 비동기 환경 지원 (run_in_executor 사용)
 """
 
 import os
 import random
 import json
+import asyncio
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+
+from server.utils.s3_uploader import get_s3_uploader
 
 
 class PhotoManager:
-    """사진 창고 관리 클래스"""
+    """S3 기반 사진 창고 관리 클래스"""
 
-    def __init__(self, photo_dir: str = "server/photo_storage"):
-        """
-        Args:
-            photo_dir: 사진이 저장된 디렉토리 경로
-        """
-        self.photo_dir = Path(photo_dir)
-        self.history_file = self.photo_dir / "usage_history.json"
-
-        # 디렉토리 생성
-        self.photo_dir.mkdir(parents=True, exist_ok=True)
-
+    def __init__(self):
+        """S3 기반 PhotoManager 초기화"""
+        self.s3_uploader = get_s3_uploader()
+        self.history_file = Path("server/automation/photo_usage_history.json")
+        self._executor = ThreadPoolExecutor(max_workers=2)  # 비동기 실행용 스레드 풀
+        
         # 사용 이력 로드
         self.usage_history = self._load_history()
+        
+        if not self.s3_uploader:
+            print("⚠️ S3 업로더를 초기화할 수 없습니다. AWS 자격 증명을 확인하세요.")
 
     def _load_history(self) -> dict:
         """사용 이력 JSON 파일 로드"""
         if self.history_file.exists():
-            with open(self.history_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+            try:
+                with open(self.history_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️ 사용 이력 로드 실패: {e}")
         return {"used_photos": [], "last_reset": None}
 
     def _save_history(self):
         """사용 이력 JSON 파일 저장"""
-        with open(self.history_file, "w", encoding="utf-8") as f:
-            json.dump(self.usage_history, f, ensure_ascii=False, indent=2)
+        try:
+            self.history_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                json.dump(self.usage_history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"⚠️ 사용 이력 저장 실패: {e}")
 
     def get_available_photos(self) -> List[str]:
         """
-        사용 가능한 이미지 파일 목록 반환
+        S3에서 사용 가능한 이미지 S3 key 목록 반환
 
         Returns:
-            이미지 파일명 리스트
+            이미지 S3 key 리스트 (예: ["photos/image1.jpg", "photos/image2.jpg"])
         """
-        extensions = {".jpg", ".jpeg", ".png", ".webp"}
-        photos = [
-            f.name
-            for f in self.photo_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in extensions
-        ]
-        return photos
+        if not self.s3_uploader:
+            return []
+        
+        try:
+            # S3에서 이미지 목록 가져오기 (S3 key로 반환)
+            image_keys = self.s3_uploader.list_images(folder="photos", limit=1000, return_keys=True)
+            return image_keys
+        except Exception as e:
+            print(f"❌ S3 이미지 목록 조회 실패: {e}")
+            return []
 
-    def get_random_photo(self) -> Optional[tuple[str, bytes]]:
+    def get_random_photo(self) -> Optional[Tuple[str, bytes]]:
         """
-        랜덤으로 사진 선택 (중복 방지)
+        S3에서 랜덤으로 사진 선택 (중복 방지) - boto3로 직접 다운로드
 
         Returns:
             (파일명, 바이트 데이터) 튜플 또는 None
         """
+        if not self.s3_uploader:
+            print("⚠️ S3 업로더가 초기화되지 않았습니다.")
+            return None
+
         all_photos = self.get_available_photos()
 
         if not all_photos:
-            print("⚠️ 사진 창고가 비어있습니다!")
+            print("⚠️ S3에 사진이 없습니다!")
+            print("   💡 upload_to_s3.py 스크립트로 사진을 업로드하세요.")
             return None
 
-        # 아직 사용하지 않은 사진들
+        # 아직 사용하지 않은 사진들 (S3 key 기준)
         used_photos = set(self.usage_history.get("used_photos", []))
-        unused_photos = [p for p in all_photos if p not in used_photos]
+        unused_photos = [s3_key for s3_key in all_photos if s3_key not in used_photos]
 
         # 모든 사진을 사용했으면 리셋
         if not unused_photos:
@@ -84,28 +102,44 @@ class PhotoManager:
             unused_photos = all_photos
 
         # 랜덤 선택
-        selected_photo = random.choice(unused_photos)
-        photo_path = self.photo_dir / selected_photo
+        selected_s3_key = random.choice(unused_photos)
+        
+        # S3 key에서 파일명 추출
+        filename = selected_s3_key.split("/")[-1]
 
-        # 파일 읽기
+        # boto3로 이미지 다운로드
         try:
-            with open(photo_path, "rb") as f:
-                photo_data = f.read()
+            photo_data = self.s3_uploader.download_image(selected_s3_key)
+            
+            if not photo_data:
+                print(f"❌ 사진 다운로드 실패: {selected_s3_key}")
+                return None
 
             # 사용 이력 업데이트
-            self.usage_history["used_photos"].append(selected_photo)
+            self.usage_history["used_photos"].append(selected_s3_key)
             self._save_history()
 
-            print(f"✅ 선택된 사진: {selected_photo}")
-            return (selected_photo, photo_data)
+            print(f"✅ 선택된 사진: {filename} (S3)")
+            return (filename, photo_data)
 
         except Exception as e:
-            print(f"❌ 사진 읽기 실패: {e}")
+            print(f"❌ 사진 다운로드 실패: {e}")
             return None
+
+    async def get_random_photo_async(self) -> Optional[Tuple[str, bytes]]:
+        """
+        S3에서 랜덤으로 사진 선택 (비동기 버전) - FastAPI에서 사용
+        
+        Returns:
+            (파일명, 바이트 데이터) 튜플 또는 None
+        """
+        # 동기 함수를 스레드 풀에서 실행하여 이벤트 루프 블로킹 방지
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self._executor, self.get_random_photo)
 
     def add_photo(self, photo_data: bytes, filename: str) -> bool:
         """
-        새 사진을 창고에 추가
+        새 사진을 S3에 추가
 
         Args:
             photo_data: 이미지 바이트 데이터
@@ -114,12 +148,25 @@ class PhotoManager:
         Returns:
             성공 여부
         """
+        if not self.s3_uploader:
+            print("⚠️ S3 업로더가 초기화되지 않았습니다.")
+            return False
+
         try:
-            photo_path = self.photo_dir / filename
-            with open(photo_path, "wb") as f:
-                f.write(photo_data)
-            print(f"✅ 사진 추가 완료: {filename}")
-            return True
+            # S3에 업로드
+            url = self.s3_uploader.upload_image(
+                image_data=photo_data,
+                filename=filename,
+                folder="photos"
+            )
+            
+            if url:
+                print(f"✅ 사진 추가 완료: {filename} → {url}")
+                return True
+            else:
+                print(f"❌ 사진 추가 실패: {filename}")
+                return False
+                
         except Exception as e:
             print(f"❌ 사진 추가 실패: {e}")
             return False
@@ -138,6 +185,7 @@ class PhotoManager:
             "used_photos": len(used_photos),
             "remaining_photos": len(all_photos) - len(used_photos),
             "last_reset": self.usage_history.get("last_reset"),
+            "storage": "S3 (CloudFront CDN)"
         }
 
 
@@ -162,6 +210,7 @@ if __name__ == "__main__":
     print(f"  전체 사진: {stats['total_photos']}장")
     print(f"  사용한 사진: {stats['used_photos']}장")
     print(f"  남은 사진: {stats['remaining_photos']}장")
+    print(f"  저장소: {stats['storage']}")
 
     print("\n🎲 랜덤 사진 선택 테스트:")
     result = manager.get_random_photo()
@@ -170,7 +219,5 @@ if __name__ == "__main__":
         print(f"  선택된 사진: {filename}")
         print(f"  크기: {len(data)} bytes")
     else:
-        print("  ⚠️ 사진 창고가 비어있습니다.")
-        print(
-            "  💡 server/photo_storage/ 폴더에 고기 사진을 20~30장 넣어주세요!"
-        )
+        print("  ⚠️ S3에 사진이 없습니다.")
+        print("  💡 upload_to_s3.py 스크립트로 사진을 업로드하세요!")

@@ -135,7 +135,7 @@ class SmartContentGenerator:
         self, max_retries: int = 3, check_forbidden_words: bool = True
     ) -> Optional[dict[str, any]]:
         """
-        안전한 게시물 콘텐츠 생성
+        안전한 게시물 콘텐츠 생성 (동기 버전 - 크론잡용)
 
         Args:
             max_retries: AI가 금지어를 사용할 경우 재시도 횟수
@@ -149,8 +149,82 @@ class SmartContentGenerator:
                 "context": str
             } 또는 None
         """
-        # 1. 랜덤 사진 선택
+        # 1. 랜덤 사진 선택 (동기 버전)
         photo_result = self.photo_manager.get_random_photo()
+        if not photo_result:
+            print("❌ 사용 가능한 사진이 없습니다.")
+            return None
+
+        filename, image_data = photo_result
+
+        # 2. 컨텍스트 정보 생성
+        context_info = self.context_provider.generate_prompt_context()
+
+        # 3. 안전한 프롬프트 생성
+        allow_promotions = not check_forbidden_words
+        safe_prompt = self._build_safe_prompt(context_info, allow_promotions=allow_promotions)
+
+        # 4. AI로 설명 생성 (재시도 로직)
+        for attempt in range(max_retries):
+            print(f"🤖 AI 콘텐츠 생성 중... (시도 {attempt + 1}/{max_retries})")
+
+            description = analyze_image_with_flash(image_data, safe_prompt)
+
+            # 에러 체크
+            if "에러" in description or "오류" in description:
+                print(f"❌ AI 생성 실패: {description}")
+                continue
+
+            # 🔒 안전장치 2: 금지어 검사 (선택적)
+            if check_forbidden_words:
+                is_safe, found_words = self._check_forbidden_words(description)
+
+                if is_safe:
+                    print("✅ 안전한 콘텐츠 생성 완료!")
+                    return {
+                        "image_filename": filename,
+                        "image_data": image_data,
+                        "description": description,
+                        "context": context_info,
+                    }
+                else:
+                    print(
+                        f"⚠️ 금지어 발견: {found_words}. "
+                        f"재생성 중... ({attempt + 1}/{max_retries})"
+                    )
+            else:
+                # 금지어 체크 안 함 - 할인/이벤트 언급 가능
+                print("✅ 콘텐츠 생성 완료! (금지어 체크 건너뜀)")
+                return {
+                    "image_filename": filename,
+                    "image_data": image_data,
+                    "description": description,
+                    "context": context_info,
+                }
+
+        print("❌ 최대 재시도 횟수 초과. 안전한 콘텐츠 생성 실패.")
+        return None
+
+    async def generate_post_content_async(
+        self, max_retries: int = 3, check_forbidden_words: bool = True
+    ) -> Optional[dict[str, any]]:
+        """
+        안전한 게시물 콘텐츠 생성 (비동기 버전 - FastAPI용)
+
+        Args:
+            max_retries: AI가 금지어를 사용할 경우 재시도 횟수
+            check_forbidden_words: 금지어 체크 여부 (False면 할인/이벤트 언급 가능)
+
+        Returns:
+            {
+                "image_filename": str,
+                "image_data": bytes,
+                "description": str,
+                "context": str
+            } 또는 None
+        """
+        # 1. 랜덤 사진 선택 (비동기 버전 - 이벤트 루프 블로킹 방지)
+        photo_result = await self.photo_manager.get_random_photo_async()
         if not photo_result:
             print("❌ 사용 가능한 사진이 없습니다.")
             return None
@@ -254,6 +328,6 @@ if __name__ == "__main__":
     else:
         print("❌ 콘텐츠 생성 실패")
         print("\n💡 다음을 확인하세요:")
-        print("  1. server/photo_storage/ 폴더에 사진이 있는지")
+        print("  1. S3에 사진이 업로드되어 있는지 (upload_to_s3.py 사용)")
         print("  2. Gemini API 키가 설정되어 있는지")
         print("  3. 네트워크 연결이 정상인지")
