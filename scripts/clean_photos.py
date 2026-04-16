@@ -4,7 +4,7 @@
 
 사용법:
     python scripts/clean_photos.py [폴더경로]
-    예: python scripts/clean_photos.py "/mnt/c/Users/사용자명/Google Drive/마장동딸이미지"
+    예: python scripts/clean_photos.py "/mnt/c/Users/사용자명/Google Drive/majang_images"
 """
 
 import os
@@ -15,20 +15,20 @@ from difPy import dif
 
 # [1] 구글 드라이브 경로 설정
 # 윈도우 경로를 그대로 사용합니다
-# 예: G:\내 드라이브\마장동딸이미지
+# 예: G:\내 드라이브\majang_images
 
 # 명령줄 인자로 경로를 받거나, 기본 경로 사용
 if len(sys.argv) > 1:
     folder_path = sys.argv[1]
 else:
     # 기본 경로 (프로젝트 폴더 안에 사진 폴더를 복사했다고 가정)
-    folder_path = "/home/seolmiseon/majangdong-daughter-ai/마장동딸이미지"
+    folder_path = "/home/seolmiseon/majangdong-daughter-ai/majang_images"
 
 # 경로가 존재하는지 확인
 if not os.path.exists(folder_path):
     print(f"❌ 오류: 경로를 찾을 수 없습니다: {folder_path}")
     print("\n💡 사용법:")
-    print("  python scripts/clean_photos.py '/mnt/c/Users/사용자명/Google Drive/마장동딸이미지'")
+    print("  python scripts/clean_photos.py '/mnt/c/Users/사용자명/Google Drive/majang_images'")
     print("\n또는 스크립트 내부의 folder_path 변수를 수정하세요.")
     sys.exit(1)
 

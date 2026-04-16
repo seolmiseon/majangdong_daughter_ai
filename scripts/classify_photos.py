@@ -20,9 +20,9 @@ from server.llm_service.services.gemini_vision import (  # noqa: E402
 
 # 분류할 폴더 경로
 backup_folder_path = (
-    "/home/seolmiseon/majangdong-daughter-ai/마장동딸이미지/duplicates_backup"
+    "/home/seolmiseon/majangdong-daughter-ai/majang_images/duplicates_backup"
 )
-main_folder = "/home/seolmiseon/majangdong-daughter-ai/마장동딸이미지"
+main_folder = "/home/seolmiseon/majangdong-daughter-ai/majang_images"
 
 print("🤖 AI 사진 분류 시작...")
 print("📂 백업 폴더:", backup_folder_path)

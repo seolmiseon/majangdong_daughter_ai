@@ -53,10 +53,12 @@ tree.txt
 # 7. 문서 파일 (README.md 제외)
 *.md
 !README.md
+!CLAUDE.md
+!AGENTS.md
 
 # 8. 사진 저장소 (사진 파일은 Git에 커밋하지 않음)
 server/photo_storage/
-마장동딸이미지/
+majang_images/
 
 # 9. 테스트 파일 (임시 테스트 스크립트)
 test_*.py
